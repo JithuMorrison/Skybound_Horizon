@@ -44,7 +44,7 @@ public class MazeGenerator : MonoBehaviour
 
                 // Instantiate floor
                 Vector3 floorPosition = new Vector3(x, 0, y);
-                Instantiate(floorPrefab, floorPosition, Quaternion.identity).transform.localScale = floorScale;
+                Instantiate(floorPrefab, floorPosition, Quaternion.identity, transform).transform.localScale = floorScale;
             }
         }
     }
@@ -54,19 +54,15 @@ public class MazeGenerator : MonoBehaviour
         // Top and Bottom Walls
         for (int x = -1; x <= width; x++)
         {
-            Vector3 topWallPos = new Vector3(x, 0.5f, height);
-            Vector3 bottomWallPos = new Vector3(x, 0.5f, -1);
-            Instantiate(wallPrefab, topWallPos, Quaternion.identity).transform.localScale = wallScale;
-            Instantiate(wallPrefab, bottomWallPos, Quaternion.identity).transform.localScale = wallScale;
+            CreateWall(new Vector3(x, 0.5f, height), Quaternion.identity);
+            CreateWall(new Vector3(x, 0.5f, -1), Quaternion.identity);
         }
 
         // Left and Right Walls
-        for (int y = 0; y < height; y++)
+        for (int y = -1; y <= height; y++)
         {
-            Vector3 leftWallPos = new Vector3(-1, 0.5f, y);
-            Vector3 rightWallPos = new Vector3(width, 0.5f, y);
-            Instantiate(wallPrefab, leftWallPos, Quaternion.Euler(0, 90, 0)).transform.localScale = wallScale;
-            Instantiate(wallPrefab, rightWallPos, Quaternion.Euler(0, 90, 0)).transform.localScale = wallScale;
+            CreateWall(new Vector3(-1, 0.5f, y), Quaternion.Euler(0, 90, 0));
+            CreateWall(new Vector3(width, 0.5f, y), Quaternion.Euler(0, 90, 0));
         }
     }
 
@@ -84,40 +80,48 @@ public class MazeGenerator : MonoBehaviour
 
     void CreateWall(Vector3 position, Quaternion rotation)
     {
-        Instantiate(wallPrefab, position, rotation).transform.localScale = wallScale;
+        Instantiate(wallPrefab, position, rotation, transform).transform.localScale = wallScale;
     }
 
     List<Cell> GeneratePathAStar(Cell start, Cell goal)
     {
-        var openList = new List<Cell> { start };
-        var closedList = new HashSet<Cell>();
+        var openSet = new List<Cell> { start };
+        var closedSet = new HashSet<Cell>();
+        start.GCost = 0;
+        start.HCost = GetDistance(start, goal);
 
-        while (openList.Count > 0)
+        while (openSet.Count > 0)
         {
-            openList.Sort((a, b) => a.FCost.CompareTo(b.FCost));
-            var current = openList[0];
+            var current = openSet[0];
+            for (int i = 1; i < openSet.Count; i++)
+            {
+                if (openSet[i].FCost < current.FCost || openSet[i].FCost == current.FCost && openSet[i].HCost < current.HCost)
+                {
+                    current = openSet[i];
+                }
+            }
 
             if (current == goal)
             {
                 return RetracePath(start, goal);
             }
 
-            openList.Remove(current);
-            closedList.Add(current);
+            openSet.Remove(current);
+            closedSet.Add(current);
 
             foreach (var neighbor in GetNeighbors(current))
             {
-                if (closedList.Contains(neighbor)) continue;
+                if (closedSet.Contains(neighbor)) continue;
 
                 int newCostToNeighbor = current.GCost + GetDistance(current, neighbor);
-                if (newCostToNeighbor < neighbor.GCost || !openList.Contains(neighbor))
+                if (newCostToNeighbor < neighbor.GCost || !openSet.Contains(neighbor))
                 {
                     neighbor.GCost = newCostToNeighbor;
                     neighbor.HCost = GetDistance(neighbor, goal);
                     neighbor.Parent = current;
 
-                    if (!openList.Contains(neighbor))
-                        openList.Add(neighbor);
+                    if (!openSet.Contains(neighbor))
+                        openSet.Add(neighbor);
                 }
             }
         }
@@ -170,23 +174,16 @@ public class MazeGenerator : MonoBehaviour
 
     void RemoveWall(Cell current, Cell next)
     {
-        Vector3 wallPosition = Vector3.zero;
-        Quaternion wallRotation = Quaternion.identity;
+        Vector3 wallPosition = (current.X == next.X) 
+            ? new Vector3(current.X, 0.5f, (current.Y + next.Y) / 2f)
+            : new Vector3((current.X + next.X) / 2f, 0.5f, current.Y);
 
-        if (current.X == next.X)
-        {
-            wallPosition = new Vector3(current.X, 0.5f, (current.Y + next.Y) / 2f);
-        }
-        else if (current.Y == next.Y)
-        {
-            wallPosition = new Vector3((current.X + next.X) / 2f, 0.5f, current.Y);
-            wallRotation = Quaternion.Euler(0, 90, 0);
-        }
+        Quaternion wallRotation = (current.X == next.X) ? Quaternion.identity : Quaternion.Euler(0, 90, 0);
 
         Collider[] colliders = Physics.OverlapBox(wallPosition, new Vector3(0.5f, 0.5f, 0.1f), wallRotation);
         foreach (var collider in colliders)
         {
-            if (collider.gameObject.CompareTag("Wall"))
+            if (collider.CompareTag("Wall"))
             {
                 Destroy(collider.gameObject);
             }
@@ -195,9 +192,8 @@ public class MazeGenerator : MonoBehaviour
 
     void CreateEntranceAndExit()
     {
-        // Create entrance at (0, 0) and exit at (width - 1, height - 1)
-        RemoveWall(grid[0, 0], grid[0, 1]);  // Entrance
-        RemoveWall(grid[width - 1, height - 2], grid[width - 1, height - 1]); // Exit
+        RemoveWall(grid[0, 0], new Cell(-1, 0));  // Entrance
+        RemoveWall(grid[width - 1, height - 1], new Cell(width, height - 1)); // Exit
     }
 
     private class Cell
@@ -208,7 +204,6 @@ public class MazeGenerator : MonoBehaviour
         public int HCost;
         public int FCost => GCost + HCost;
         public Cell Parent;
-        public bool IsVisited;
 
         public Cell(int x, int y)
         {
@@ -217,7 +212,6 @@ public class MazeGenerator : MonoBehaviour
             GCost = int.MaxValue;
             HCost = 0;
             Parent = null;
-            IsVisited = false;
         }
     }
 }
