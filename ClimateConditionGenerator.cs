@@ -2,9 +2,8 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class ClimateConditionGenerator : MonoBehaviour
+public class ClimateConditionController : MonoBehaviour
 {
-    // Define constants for climate attributes
     private const int MAX_TEMPERATURE = 50;
     private const int MIN_TEMPERATURE = -30;
     private const int MAX_HUMIDITY = 100;
@@ -12,10 +11,11 @@ public class ClimateConditionGenerator : MonoBehaviour
     private const int MAX_RAINFALL = 200;
     private const int MIN_RAINFALL = 0;
 
-    // Depth for minimax search
     private const int SEARCH_DEPTH = 2;
 
-    // Define possible climate regions
+    private float timePassed = 0f;
+    private const float updateInterval = 10f; // 10 minutes in seconds
+
     public enum RegionType { Desert, Forest, Tundra, Grassland }
 
     [System.Serializable]
@@ -33,7 +33,6 @@ public class ClimateConditionGenerator : MonoBehaviour
         }
     }
 
-    // Define initial climate conditions for each region type
     private Dictionary<RegionType, ClimateCondition> initialConditions = new Dictionary<RegionType, ClimateCondition>
     {
         { RegionType.Desert, new ClimateCondition(40, 20, 5) },
@@ -42,13 +41,11 @@ public class ClimateConditionGenerator : MonoBehaviour
         { RegionType.Grassland, new ClimateCondition(25, 50, 50) }
     };
 
-    // Evaluate a climate condition based on a given region
     private int EvaluateClimate(ClimateCondition climate, RegionType region)
     {
         var initial = initialConditions[region];
         int score = 0;
 
-        // Score is calculated based on how close the condition is to the initial "ideal" conditions
         score -= Mathf.Abs(climate.Temperature - initial.Temperature);
         score -= Mathf.Abs(climate.Humidity - initial.Humidity);
         score -= Mathf.Abs(climate.Rainfall - initial.Rainfall);
@@ -56,15 +53,12 @@ public class ClimateConditionGenerator : MonoBehaviour
         return score;
     }
 
-    // Minimax function for generating climate conditions
     private int Minimax(ClimateCondition climate, RegionType region, int depth, bool isMaximizing)
     {
         if (depth == 0)
             return EvaluateClimate(climate, region);
 
         int bestScore = isMaximizing ? int.MinValue : int.MaxValue;
-
-        // Generate possible changes in climate attributes
         List<ClimateCondition> possibleConditions = GeneratePossibleConditions(climate);
 
         foreach (var condition in possibleConditions)
@@ -76,15 +70,21 @@ public class ClimateConditionGenerator : MonoBehaviour
         return bestScore;
     }
 
-    // Generate possible variations of a climate condition
     private List<ClimateCondition> GeneratePossibleConditions(ClimateCondition climate)
     {
         List<ClimateCondition> conditions = new List<ClimateCondition>();
 
-        // Slightly adjust temperature, humidity, and rainfall
-        int[] temperatureOptions = { climate.Temperature - 5, climate.Temperature, climate.Temperature + 5 };
-        int[] humidityOptions = { climate.Humidity - 10, climate.Humidity, climate.Humidity + 10 };
-        int[] rainfallOptions = { climate.Rainfall - 20, climate.Rainfall, climate.Rainfall + 20 };
+        int[] temperatureOptions = { Mathf.Clamp(climate.Temperature - 5, MIN_TEMPERATURE, MAX_TEMPERATURE),
+                                     climate.Temperature,
+                                     Mathf.Clamp(climate.Temperature + 5, MIN_TEMPERATURE, MAX_TEMPERATURE) };
+
+        int[] humidityOptions = { Mathf.Clamp(climate.Humidity - 10, MIN_HUMIDITY, MAX_HUMIDITY),
+                                  climate.Humidity,
+                                  Mathf.Clamp(climate.Humidity + 10, MIN_HUMIDITY, MAX_HUMIDITY) };
+
+        int[] rainfallOptions = { Mathf.Clamp(climate.Rainfall - 20, MIN_RAINFALL, MAX_RAINFALL),
+                                  climate.Rainfall,
+                                  Mathf.Clamp(climate.Rainfall + 20, MIN_RAINFALL, MAX_RAINFALL) };
 
         foreach (var temp in temperatureOptions)
         {
@@ -92,11 +92,7 @@ public class ClimateConditionGenerator : MonoBehaviour
             {
                 foreach (var rain in rainfallOptions)
                 {
-                    int tempCapped = Mathf.Clamp(temp, MIN_TEMPERATURE, MAX_TEMPERATURE);
-                    int humCapped = Mathf.Clamp(hum, MIN_HUMIDITY, MAX_HUMIDITY);
-                    int rainCapped = Mathf.Clamp(rain, MIN_RAINFALL, MAX_RAINFALL);
-
-                    conditions.Add(new ClimateCondition(tempCapped, humCapped, rainCapped));
+                    conditions.Add(new ClimateCondition(temp, hum, rain));
                 }
             }
         }
@@ -104,7 +100,6 @@ public class ClimateConditionGenerator : MonoBehaviour
         return conditions;
     }
 
-    // Public method to find the best climate condition for a given region
     public ClimateCondition GenerateClimateCondition(RegionType region)
     {
         ClimateCondition initialClimate = initialConditions[region];
@@ -126,15 +121,101 @@ public class ClimateConditionGenerator : MonoBehaviour
         return bestCondition;
     }
 
-    // Example Unity usage to display the best climate condition for each region
-    private void Start()
+    public void RandomizeClimateForRegions()
     {
-        // Example to generate climate for each region
+        foreach (RegionType region in Enum.GetValues(typeof(RegionType)))
+        {
+            ClimateCondition randomizedClimate;
+
+            switch (region)
+            {
+                case RegionType.Desert:
+                    randomizedClimate = new ClimateCondition(
+                        UnityEngine.Random.Range(30, 50), 
+                        UnityEngine.Random.Range(10, 30), 
+                        UnityEngine.Random.Range(0, 20)  
+                    );
+                    break;
+
+                case RegionType.Forest:
+                    randomizedClimate = new ClimateCondition(
+                        UnityEngine.Random.Range(10, 30), 
+                        UnityEngine.Random.Range(60, 100),
+                        UnityEngine.Random.Range(50, 200) 
+                    );
+                    break;
+
+                case RegionType.Tundra:
+                    randomizedClimate = new ClimateCondition(
+                        UnityEngine.Random.Range(-30, 0),  
+                        UnityEngine.Random.Range(50, 80),  
+                        UnityEngine.Random.Range(10, 50)  
+                    );
+                    break;
+
+                case RegionType.Grassland:
+                    randomizedClimate = new ClimateCondition(
+                        UnityEngine.Random.Range(20, 35),  
+                        UnityEngine.Random.Range(30, 70), 
+                        UnityEngine.Random.Range(20, 100)  
+                    );
+                    break;
+
+                default:
+                    randomizedClimate = new ClimateCondition(
+                        UnityEngine.Random.Range(MIN_TEMPERATURE, MAX_TEMPERATURE),
+                        UnityEngine.Random.Range(MIN_HUMIDITY, MAX_HUMIDITY),
+                        UnityEngine.Random.Range(MIN_RAINFALL, MAX_RAINFALL)
+                    );
+                    break;
+            }
+
+            // Find the best climate after randomizing the values
+            ClimateCondition bestClimate = FindBestClimateAfterRandomChange(region, randomizedClimate);
+
+            Debug.Log($"Best Climate for {region}: Temperature: {bestClimate.Temperature}°C, " +
+                    $"Humidity: {bestClimate.Humidity}%, Rainfall: {bestClimate.Rainfall}mm");
+        }
+    }
+
+    private ClimateCondition FindBestClimateAfterRandomChange(RegionType region, ClimateCondition randomizedClimate)
+    {
+        int bestScore = int.MinValue;
+        ClimateCondition bestCondition = randomizedClimate;
+
+        List<ClimateCondition> possibleConditions = GeneratePossibleConditions(randomizedClimate);
+
+        foreach (var condition in possibleConditions)
+        {
+            int score = EvaluateClimate(condition, region);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestCondition = condition;
+            }
+        }
+
+        return bestCondition;
+    }
+
+    void Start()
+    {
         foreach (RegionType region in Enum.GetValues(typeof(RegionType)))
         {
             ClimateCondition bestClimate = GenerateClimateCondition(region);
             Debug.Log($"Best Climate for {region}: Temperature: {bestClimate.Temperature}°C, " +
                       $"Humidity: {bestClimate.Humidity}%, Rainfall: {bestClimate.Rainfall}mm");
+        }
+    }
+
+    void Update()
+    {
+        timePassed += Time.deltaTime;
+
+        if (timePassed >= updateInterval)
+        {
+            timePassed = 0f;  
+            RandomizeClimateForRegions();
         }
     }
 }
