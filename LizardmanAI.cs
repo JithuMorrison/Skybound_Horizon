@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System.Linq;
 
 [RequireComponent(typeof(CharacterController))]
 public class LizardmanAI : MonoBehaviour
@@ -8,16 +9,20 @@ public class LizardmanAI : MonoBehaviour
     public Animator animator;
     public float speed = 2.0f;
     public float runSpeed = 4.0f;
-    public float slopeLimit = 30.0f; // Maximum slope angle the lizardman can move up
-    public LayerMask terrainLayer; // Layer to detect terrain
-    public float terrainCheckDistance = 2.0f; // Distance to check terrain ahead
-    public float gravity = -9.81f; // Gravity force
-    public float stuckThreshold = 0.1f; // Distance threshold to consider the lizardman stuck
-    public float stuckTime = 2.0f; // Time threshold to consider the lizardman stuck
-    public float directionChangeInterval = 3.0f; // Time interval for random direction changes
-    public float humanDetectionRange = 15f; // Range to detect humans
-
-    public float attackCooldownTime = 3600f; // Cooldown after attacking a village
+    public float slopeLimit = 30.0f;
+    public LayerMask terrainLayer;
+    public float terrainCheckDistance = 2.0f;
+    public float gravity = -9.81f;
+    public float stuckThreshold = 0.1f;
+    public float stuckTime = 2.0f;
+    public float directionChangeInterval = 3.0f;
+    public float humanDetectionRange = 15f;
+    public float attackCooldownTime = 3600f; 
+    public float hungerDecreaseInterval = 5f; 
+    public float villageDetectionRange = 100f;
+    public float hungerThreshold = 50f; 
+    private Transform targetVillage; 
+    private float hunger = 100f; 
     private float attackCooldownTimer;
 
     private CharacterController controller;
@@ -25,14 +30,23 @@ public class LizardmanAI : MonoBehaviour
     private Vector3 lastPosition;
     private float stuckTimer;
     private float directionChangeTimer;
+    private Vector3[] currentPath; 
+    private int currentWaypointIndex = 0; 
+    private float interval=10.0f;
+    public float attackDuration = 300f;
+
+    private Vector3 homeBaseLocation = new Vector3(0, 0, 0);
+
+    private bool isAttackingVillage = false;
+    private float attackTimer = 0f;
 
     private enum State { Idle, Walk, Run, Attack }
     private State currentState;
     private int previousStateIndex = -1;
+    private List<Transform> villages = new List<Transform>();
 
-    private Transform targetHuman; // Store reference to the detected human
+    private Transform targetHuman;
 
-    // Weights for each state (Idle, Walk, Run)
     private float[] stateWeights = { 1.0f, 50.0f, 10.0f };
 
     void Start()
@@ -40,7 +54,9 @@ public class LizardmanAI : MonoBehaviour
         controller = GetComponent<CharacterController>();
         controller.slopeLimit = slopeLimit;
         lastPosition = transform.position;
-        StartCoroutine(ChangeStatePeriodically(5.0f));
+        homeBaseLocation = GetRandomPositionAroundHomeBase();
+        StartCoroutine(ChangeStatePeriodically(interval));
+        StartCoroutine(DecreaseHunger());
     }
 
     void Update()
@@ -49,6 +65,41 @@ public class LizardmanAI : MonoBehaviour
         CheckIfStuck();
         UpdateRandomDirection();
         UpdateAttackCooldown();
+        UpdateHunger();
+
+        if (hunger < hungerThreshold || attackCooldownTimer <= 0f)
+        {
+            if (villages.Count == 0)
+            {
+                interval += Time.deltaTime;
+            }
+            else
+            {
+                FindPathToNearestVillage();
+            }
+        }
+
+        if (currentPath != null && currentPath.Length > 0 && currentWaypointIndex < currentPath.Length)
+        {
+            MoveTowardsWaypoint(currentPath[currentWaypointIndex]);
+            if (Vector3.Distance(transform.position, currentPath[currentWaypointIndex]) < 1f)
+            {
+                currentWaypointIndex++;
+            }
+        }
+        else if (targetVillage != null)
+        {
+            MoveTowardsWaypoint(targetVillage.position);
+        }
+
+        if (isAttackingVillage)
+        {
+            attackTimer += Time.deltaTime;
+            if (attackTimer >= attackDuration)
+            {
+                ExitVillageAfterAttack();
+            }
+        }
     }
 
     IEnumerator ChangeStatePeriodically(float interval)
@@ -59,6 +110,79 @@ public class LizardmanAI : MonoBehaviour
             yield return new WaitForSeconds(interval);
         }
     }
+
+    Vector3 GetRandomPositionAroundHomeBase()
+    {
+        float radius = 50f;
+        Vector3 homeBasePosition = transform.position;
+
+        float randomAngle = Random.Range(0f, 2f * Mathf.PI); 
+        float randomDistance = Random.Range(0f, radius);   
+
+        float offsetX = randomDistance * Mathf.Cos(randomAngle);
+        float offsetZ = randomDistance * Mathf.Sin(randomAngle);
+
+        Vector3 randomPosition = new Vector3(homeBasePosition.x + offsetX, homeBasePosition.y, homeBasePosition.z + offsetZ);
+
+        RaycastHit hit;
+        if (Physics.Raycast(randomPosition + Vector3.up * 100f, Vector3.down, out hit, Mathf.Infinity))
+        {
+            randomPosition.y = hit.point.y;
+        }
+
+        return randomPosition;
+    }
+
+    void UpdateHunger()
+    {
+        if (hunger <= 0f && targetVillage != null)
+        {
+            currentState = State.Run;
+            UpdateAnimatorState();
+        }
+    }
+
+    IEnumerator DecreaseHunger()
+    {
+        while (true)
+        {
+            hunger -= 5f; 
+            if (hunger < hungerThreshold && targetVillage != null)
+            {
+                currentState = State.Run;
+                UpdateAnimatorState();
+            }
+            yield return new WaitForSeconds(hungerDecreaseInterval * 60f);
+        }
+    }
+
+    void UpdateAttackCooldown()
+    {
+        if (attackCooldownTimer > 0)
+        {
+            attackCooldownTimer -= Time.deltaTime;
+        }
+    }
+
+    bool IsVillageNearby(out Vector3 villageDirection)
+    {
+        villageDirection = Vector3.zero;
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, 100f);  
+
+        foreach (var hitCollider in hitColliders)
+        {
+            if (hitCollider.CompareTag("Village"))  
+            {
+                Vector3 directionToVillage = hitCollider.transform.position - transform.position;
+                villageDirection = directionToVillage;
+                targetVillage = hitCollider.transform;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 
     bool IsHumanNearby(out Vector3 humanDirection)
     {
@@ -127,52 +251,54 @@ public class LizardmanAI : MonoBehaviour
                 }
                 else
                 {
-                    // Move toward human
                     movement = forwardDirection * currentSpeed;
                 }
             }
             else
             {
-                forwardDirection = transform.forward;
+                if (currentPath != null && currentWaypointIndex < currentPath.Length)
+                {
+                    Vector3 targetPosition = currentPath[currentWaypointIndex];
+                    forwardDirection = (targetPosition - transform.position).normalized;
+
+                    if (Vector3.Distance(transform.position, targetPosition) < 1f)
+                    {
+                        currentWaypointIndex++;
+                    }
+
+                    movement = forwardDirection * currentSpeed;
+                }
             }
 
             if (CanMoveForward(forwardDirection, terrainCheckDistance))
             {
-                // Move forward
                 movement = forwardDirection * currentSpeed;
             }
             else
             {
-                // Change direction if a steep slope is detected
                 ChangeDirection();
             }
         }
 
-        // Apply gravity
         if (controller.isGrounded && velocity.y < 0)
         {
             velocity.y = -2f;
         }
         velocity.y += gravity * Time.deltaTime;
 
-        // Combine horizontal movement with vertical velocity
         Vector3 finalMovement = movement + new Vector3(0, velocity.y, 0);
 
-        // Move the character
         controller.Move(finalMovement * Time.deltaTime);
 
-        // Update animation based on actual movement
         bool isMoving = movement.magnitude > 0.1f;
     }
 
     void UpdateAnimatorState()
     {
-        // Reset all movement states
         animator.SetBool("walk", false);
         animator.SetBool("Run", false);
         animator.SetBool("Attack", false);
 
-        // Set the animation based on the current state
         if (currentState == State.Attack)
         {
             animator.SetBool("Attack", true);
@@ -187,14 +313,6 @@ public class LizardmanAI : MonoBehaviour
         }
     }
 
-    void UpdateAttackCooldown()
-    {
-        if (attackCooldownTimer > 0)
-        {
-            attackCooldownTimer -= Time.deltaTime;
-        }
-    }
-
     bool CanMoveForward(Vector3 direction, float checkDistance)
     {
         RaycastHit hit;
@@ -205,7 +323,7 @@ public class LizardmanAI : MonoBehaviour
             float slopeAngle = Vector3.Angle(hit.normal, Vector3.up);
             return slopeAngle <= slopeLimit;
         }
-        return true; // No obstacle detected, can move forward
+        return true;
     }
 
     void ChangeDirection(bool majorChange = false)
@@ -226,7 +344,7 @@ public class LizardmanAI : MonoBehaviour
                 stuckTimer += Time.deltaTime;
                 if (stuckTimer >= stuckTime)
                 {
-                    ChangeDirection(true); // Force a major direction change when stuck
+                    ChangeDirection(true);
                     stuckTimer = 0f;
                 }
             }
@@ -245,7 +363,7 @@ public class LizardmanAI : MonoBehaviour
         {
             if (currentState != State.Idle && currentState != State.Attack)
             {
-                bool majorChange = Random.value < 0.2f; // 20% chance for a major direction change
+                bool majorChange = Random.value < 0.2f;
                 ChangeDirection(majorChange);
             }
             directionChangeTimer = 0f;
@@ -268,10 +386,7 @@ public class LizardmanAI : MonoBehaviour
             {
                 return i;
             }
-            else
-            {
-                randomPoint -= weights[i];
-            }
+            randomPoint -= weights[i];
         }
         return weights.Length - 1;
     }
@@ -287,5 +402,130 @@ public class LizardmanAI : MonoBehaviour
         {
             stateWeights[previousStateIndex] = 0.2f;
         }
+        stateWeights[chosenIndex] = 50.0f;
+    }
+
+    void CheckForVillages()
+    {
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, villageDetectionRange);
+        foreach (var hitCollider in hitColliders)
+        {
+            if (hitCollider.CompareTag("Village") && !villages.Contains(hitCollider.transform))
+            {
+                villages.Add(hitCollider.transform);
+            }
+        }
+    }
+
+    void FindPathToNearestVillage()
+    {
+        if (villages.Count > 0)
+        {
+            targetVillage = villages.OrderBy(v => Vector3.Distance(transform.position, v.position)).First();
+            currentPath = AStarPathfinding(transform.position, targetVillage.position);
+            currentWaypointIndex = 0;
+            currentState = State.Run;
+            UpdateAnimatorState();
+        }
+    }
+
+    void ExitVillageAfterAttack()
+    {
+        isAttackingVillage = false;
+        attackTimer = 0f;
+        attackCooldownTimer = attackCooldownTime;
+        hunger = 100f;
+        currentPath = AStarPathfinding(transform.position, homeBaseLocation);
+        currentWaypointIndex = 0;
+        currentState = State.Walk;
+        UpdateAnimatorState();
+    }
+
+    Vector3[] AStarPathfinding(Vector3 start, Vector3 target)
+    {
+        List<Vector3> openList = new List<Vector3>();
+        List<Vector3> closedList = new List<Vector3>();
+        Dictionary<Vector3, Vector3> cameFrom = new Dictionary<Vector3, Vector3>();
+
+        openList.Add(start);
+
+        while (openList.Count > 0)
+        {
+            Vector3 current = openList[0];
+            foreach (Vector3 node in openList)
+            {
+                if (GetF(node, target) < GetF(current, target))
+                {
+                    current = node;
+                }
+            }
+
+            openList.Remove(current);
+            closedList.Add(current);
+
+            if (current == target)
+            {
+                return ReconstructPath(cameFrom, current);
+            }
+
+            foreach (Vector3 neighbor in GetNeighbors(current))
+            {
+                if (closedList.Contains(neighbor)) continue;
+
+                if (!openList.Contains(neighbor))
+                {
+                    openList.Add(neighbor);
+                    cameFrom[neighbor] = current;
+                }
+            }
+        }
+
+        return new Vector3[] { };
+    }
+
+    float GetF(Vector3 node, Vector3 target)
+    {
+        return GetG(node) + GetH(node, target);
+    }
+
+    float GetG(Vector3 node)
+    {
+        return Vector3.Distance(transform.position, node); 
+    }
+
+    float GetH(Vector3 node, Vector3 target)
+    {
+        return Vector3.Distance(node, target); 
+    }
+
+    Vector3[] ReconstructPath(Dictionary<Vector3, Vector3> cameFrom, Vector3 current)
+    {
+        List<Vector3> path = new List<Vector3>();
+        path.Add(current);
+        while (cameFrom.ContainsKey(current))
+        {
+            current = cameFrom[current];
+            path.Insert(0, current);
+        }
+        return path.ToArray();
+    }
+
+    List<Vector3> GetNeighbors(Vector3 current)
+    {
+        List<Vector3> neighbors = new List<Vector3>();
+
+        neighbors.Add(current + Vector3.forward);
+        neighbors.Add(current + Vector3.back);
+        neighbors.Add(current + Vector3.left);
+        neighbors.Add(current + Vector3.right);
+
+        return neighbors;
+    }
+
+    void MoveTowardsWaypoint(Vector3 waypoint)
+    {
+        Vector3 direction = (waypoint - transform.position).normalized;
+        controller.Move(direction * speed * Time.deltaTime);
+        transform.rotation = Quaternion.LookRotation(direction);
     }
 }
