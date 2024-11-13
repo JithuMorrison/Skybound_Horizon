@@ -182,19 +182,20 @@ public class ClimateConditionController : MonoBehaviour
     {
         int bestScore = int.MinValue;
         ClimateCondition bestCondition = randomizedClimate;
-
+    
         List<ClimateCondition> possibleConditions = GeneratePossibleConditions(randomizedClimate);
-
+    
         foreach (var condition in possibleConditions)
         {
-            int score = EvaluateClimate(condition, region);
+            int score = Minimax(condition, region, SEARCH_DEPTH, true);
+            
             if (score > bestScore)
             {
                 bestScore = score;
                 bestCondition = condition;
             }
         }
-
+    
         return bestCondition;
     }
 
