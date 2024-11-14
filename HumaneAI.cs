@@ -4,7 +4,6 @@ using UnityEngine;
 
 public class HumaneAI : MonoBehaviour
 {
-    // Personality traits and basic stats
     public Animator animator;
     [Range(0f, 1f)] public float bravery, sociability, aggression, curiosity, trustworthiness, needFactor;
     [Range(0f, 1f)] public float calmness, love, lethargy, happiness, creativity, socialFactor, tiredness;
@@ -12,10 +11,9 @@ public class HumaneAI : MonoBehaviour
     public float health, hunger, strength, defense, movementSpeed;
     private State currentState;
     
-    // Environmental factors
     private Transform nearestThreat, nearestFoodSource, nearestItemOfInterest, nearestFriend;
     private List<HumaneAI> groupMembers = new List<HumaneAI>();
-    public GameObject housePrefab;  // Assign the house prefab in the Unity Editor
+    public GameObject housePrefab;  
     public Vector3 buildLocation = new Vector3(41, 61, 105);
     private Transform homeBase;
     [SerializeField] private float hungerThreshold = 40.0f;
@@ -42,7 +40,6 @@ public class HumaneAI : MonoBehaviour
     private bool hasComplexGoals = false;
     private Transform currentGoal;  
     
-    // Settings for time-based actions
     private float timeOfDay;
     private bool isDaytime;
     [SerializeField] private float dangerRadius = 10.0f;
@@ -63,7 +60,18 @@ public class HumaneAI : MonoBehaviour
         {
             PerceiveEnvironment();
             DecideAction();
-            stateChangeTimer = 0f; // Reset timer after changing state
+            stateChangeTimer = 0f;
+            if (nearestThreat != null)
+            {
+                transform.position = Vector3.MoveTowards(transform.position, nearestThreat.position, movementSpeed * Time.deltaTime);
+                if (Vector3.Distance(transform.position, nearestThreat.position) < 3.0f)
+                {
+                    health-=5;
+                    if(health<=0){
+                        Destroy(gameObject,2f);
+                    }
+                }
+            }
         }
         Act();
     }
@@ -391,7 +399,7 @@ public class HumaneAI : MonoBehaviour
         if (target != null)
         {
             transform.position = Vector3.MoveTowards(transform.position, target.position, movementSpeed * Time.deltaTime);
-            if (Vector3.Distance(transform.position, target.position) < 5.0f)
+            if (Vector3.Distance(transform.position, target.position) < 3.0f)
             {
                 animator.SetBool("Run",false);
                 animator.SetBool("walk",false);
