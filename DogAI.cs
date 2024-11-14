@@ -160,20 +160,16 @@ public class DogAI : MonoBehaviour
 
     List<Vector3> CalculatePath(Vector3 start, Vector3 end)
     {
-        // Initialize open and closed lists
         List<Node> openList = new List<Node>();
         HashSet<Node> closedList = new HashSet<Node>();
 
-        // Create start and end nodes
         Node startNode = new Node(start);
         Node endNode = new Node(end);
 
-        // Add start node to open list
         openList.Add(startNode);
 
         while (openList.Count > 0)
         {
-            // Get node with the lowest F cost
             Node currentNode = openList[0];
             foreach (Node node in openList)
             {
@@ -183,29 +179,24 @@ public class DogAI : MonoBehaviour
                 }
             }
 
-            // Move current node from open to closed list
             openList.Remove(currentNode);
             closedList.Add(currentNode);
 
-            // Check if we reached the end node
             if (currentNode.position == endNode.position)
             {
                 return RetracePath(startNode, currentNode);
             }
 
-            // Process each neighbor
             foreach (Vector3 direction in GetNeighborDirections())
             {
                 Vector3 neighborPos = currentNode.position + direction;
                 Node neighbor = new Node(neighborPos);
 
-                // Skip if neighbor is in closed list or not walkable
                 if (closedList.Contains(neighbor) || !IsWalkable(neighbor.position))
                 {
                     continue;
                 }
 
-                // Calculate G cost (distance from start)
                 float newGCost = currentNode.gCost + Vector3.Distance(currentNode.position, neighbor.position);
 
                 if (newGCost < neighbor.gCost || !openList.Contains(neighbor))
